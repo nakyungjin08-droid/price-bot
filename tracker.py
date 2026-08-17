@@ -24,7 +24,6 @@ TARGETS = [
         "target_price": 900000,
         "min_price": 500000,
         "must_include": ["S11"],
-        # 기본 Wi-Fi 모델만 찾기 위해 울트라, 플러스, 5G/LTE 제외
         "must_exclude": ["울트라", "플러스", "+", "5g", "lte"]
     },
     {
@@ -51,13 +50,10 @@ def get_danawa_lowest_price(item_config):
     try:
         res = requests.get(url, headers=headers, timeout=15)
         if res.status_code != 200:
-            print(f"[{item_config['name']}] 서버 응답 실패: {res.status_code}")
             return None
 
         soup = BeautifulSoup(res.text, "html.parser")
         items = soup.select("li.prod_item")
-        
-        print(f"\n--- [{item_config['name']}] 다나와 검색결과 검사 시작 (총 {len(items)}개) ---")
 
         for item in items:
             classes = item.get("class", [])
@@ -83,33 +79,20 @@ def get_danawa_lowest_price(item_config):
             
             price = int(price_raw)
 
-            # 1. 최소 가격 제한 검사
             if price < item_config.get("min_price", 0):
-                print(f"❌ 제외(최저가 미달): {title} ({price:,}원)")
                 continue
 
-            # 2. 공통 제외 키워드 검사
-            matched_exclude = [kw for kw in EXCLUDE_KEYWORDS if kw in title]
-            if matched_exclude:
-                print(f"❌ 제외(키워드 '{matched_exclude[0]}'): {title}")
+            if any(kw in title for kw in EXCLUDE_KEYWORDS):
                 continue
 
             clean_title = title.lower().replace(" ", "")
 
-            # 3. 개별 상품 전용 제외 키워드 검사 (울트라, +, 5G 등)
-            matched_target_exclude = [kw for kw in item_config.get("must_exclude", []) if kw.lower() in clean_title]
-            if matched_target_exclude:
-                print(f"❌ 제외(상위/통신사모델 '{matched_target_exclude[0]}'): {title}")
+            if any(kw.lower() in clean_title for kw in item_config.get("must_exclude", [])):
                 continue
 
-            # 4. 필수 키워드 검사 (S11 등)
-            missing_keywords = [kw for kw in item_config["must_include"] if kw.lower().replace(" ", "") not in clean_title]
-            if missing_keywords:
-                print(f"❌ 제외(필수단어 '{missing_keywords[0]}' 누락): {title}")
+            if any(kw.lower().replace(" ", "") not in clean_title for kw in item_config["must_include"]):
                 continue
 
-            # 모든 조건을 통과한 최저가 상품 선택
-            print(f"✅ 최종 선택된 최저가: {title} ({price:,}원)")
             return {
                 "title": title,
                 "price": price,
@@ -141,13 +124,15 @@ def main():
         history = {}
 
     updated_history = history.copy()
+    alerts_sent = 0
+    daily_status_list = []
 
     for target in TARGETS:
         item_id = target["id"]
         result = get_danawa_lowest_price(target)
         
         if not result:
-            print(f"⚠️ [{target['name']}] 조건에 맞는 상품을 찾지 못했습니다.\n")
+            daily_status_list.append(f"• <b>{target['name']}</b>: 최저가 검색 실패")
             continue
 
         curr_price = result["price"]
@@ -158,6 +143,7 @@ def main():
         is_price_dropped_10k = (prev_price is not None) and ((prev_price - curr_price) >= 10000)
         is_first_run = prev_price is None
 
+        # 긴급 알림 조건
         if is_target_reached or is_price_dropped_10k or is_first_run:
             reason = []
             if is_first_run:
@@ -176,12 +162,26 @@ def main():
                 f"🔗 <a href='{result['link']}'>다나와 비교 페이지 바로가기</a>"
             )
             send_telegram_msg(msg)
+            alerts_sent += 1
+        else:
+            # 특이사항 없는 일반 상태 수집
+            daily_status_list.append(f"• <b>{target['name']}</b>: {curr_price:,}원 (변동 없음 / 목표가 미달)")
 
         updated_history[item_id] = {
             "name": target["name"],
             "price": curr_price,
             "title": result["title"]
         }
+
+    # 특이 알림이 하나도 안 나간 경우, 봇 정상 작동 안내 메시지 발송
+    if alerts_sent == 0 and daily_status_list:
+        status_msg = (
+            f"ℹ️ <b>[다나와 최저가 일일 점검 완료]</b>\n\n"
+            f"오늘 최저가 조건(목표가 달성 또는 1만원 이상 하락)에 해당하는 상품이 없습니다.\n"
+            f"봇은 정상 작동 중입니다.\n\n"
+            f"<b>[현재 가격 현황]</b>\n" + "\n".join(daily_status_list)
+        )
+        send_telegram_msg(status_msg)
 
     with open(history_file, "w", encoding="utf-8") as f:
         json.dump(updated_history, f, ensure_ascii=False, indent=2)
