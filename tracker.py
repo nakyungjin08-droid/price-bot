@@ -8,21 +8,21 @@ from bs4 import BeautifulSoup
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# 직구, 아랍판, 중고, 악세사리, 구독/렌탈 차단 키워드
+# 정품을 가리지 않도록 정제한 차단 키워드 (단품, 월, 커버, 할부 제거)
 EXCLUDE_KEYWORDS = [
     "해외", "직구", "아랍", "병행", "중고", "리퍼", "개봉", "전시", "공기계",
-    "케이스", "커버", "보호필름", "스트랩", "파우치", "단품", "호환", "액세서리", "악세사리",
-    "구독", "렌탈", "월", "약정", "할부"
+    "보호필름", "스트랩", "파우치", "호환", "액세서리", "악세사리",
+    "구독", "렌탈", "약정"
 ]
 
-# 추적 대상 설정 (최소 가격 제한 min_price 추가)
+# 추적 대상 설정
 TARGETS = [
     {
         "id": "tab_s11",
         "name": "갤럭시 탭 S11 기본 (Wi-Fi, 256GB)",
         "query": "갤럭시탭 S11 256GB",
         "target_price": 900000,
-        "min_price": 500000,  # 50만원 미만 월 구독료/악세사리 차단
+        "min_price": 500000,
         "must_include": ["256GB"]
     },
     {
@@ -30,7 +30,7 @@ TARGETS = [
         "name": "갤럭시 버즈4 프로 (국내정품)",
         "query": "갤럭시 버즈4 프로",
         "target_price": 280000,
-        "min_price": 100000,  # 10만원 미만 방지
+        "min_price": 100000,
         "must_include": ["버즈", "프로"]
     }
 ]
@@ -48,11 +48,14 @@ def get_danawa_lowest_price(item_config):
     try:
         res = requests.get(url, headers=headers, timeout=15)
         if res.status_code != 200:
+            print(f"[{item_config['name']}] 서버 응답 실패: {res.status_code}")
             return None
 
         soup = BeautifulSoup(res.text, "html.parser")
         items = soup.select("li.prod_item")
         
+        print(f"\n--- [{item_config['name']}] 다나와 검색결과 검사 시작 (총 {len(items)}개) ---")
+
         for item in items:
             classes = item.get("class", [])
             if "prod_ad_item" in classes or "product-pot" in classes:
@@ -77,18 +80,27 @@ def get_danawa_lowest_price(item_config):
             
             price = int(price_raw)
 
-            # 1. 최소 가격 미만 상품 스킵 (구독료/월 납부금 차단)
+            # 1. 최소 가격 제한 검사
             if price < item_config.get("min_price", 0):
+                print(f"❌ 제외(최저가 미달): {title} ({price:,}원)")
                 continue
 
             # 2. 제외 키워드 검사
-            if any(keyword in title for keyword in EXCLUDE_KEYWORDS):
+            matched_exclude = [kw for kw in EXCLUDE_KEYWORDS if kw in title]
+            if matched_exclude:
+                print(f"❌ 제외(키워드 '{matched_exclude[0]}'): {title}")
                 continue
 
-            # 3. 필수 키워드 검사
-            if not all(keyword.lower() in title.lower() for keyword in item_config["must_include"]):
+            # 3. 필수 키워드 검사 (공백 제거 후 비교)
+            clean_title = title.lower().replace(" ", "")
+            missing_keywords = [kw for kw in item_config["must_include"] if kw.lower().replace(" ", "") not in clean_title]
+            
+            if missing_keywords:
+                print(f"❌ 제외(필수단어 '{missing_keywords[0]}' 누락): {title}")
                 continue
 
+            # 조건을 모두 통과한 최저가 상품 찾음
+            print(f"✅ 최종 선택된 최저가: {title} ({price:,}원)")
             return {
                 "title": title,
                 "price": price,
@@ -126,7 +138,7 @@ def main():
         result = get_danawa_lowest_price(target)
         
         if not result:
-            print(f"[{target['name']}] 조건에 맞는 상품을 찾지 못했습니다.")
+            print(f"⚠️ [{target['name']}] 조건에 맞는 상품을 찾지 못했습니다.\n")
             continue
 
         curr_price = result["price"]
@@ -135,8 +147,6 @@ def main():
 
         is_target_reached = curr_price <= target_price
         is_price_dropped_10k = (prev_price is not None) and ((prev_price - curr_price) >= 10000)
-        
-        # 첫 실행 시 가격 확인을 위한 테스트 메시지 전송 (이후 내역이 쌓이면 조건부로 동작)
         is_first_run = prev_price is None
 
         if is_target_reached or is_price_dropped_10k or is_first_run:
