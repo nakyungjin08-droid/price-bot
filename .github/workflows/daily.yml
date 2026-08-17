@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
+# 저장소 쓰기 권한 명시
+permissions:
+  contents: write
+
 jobs:
   track:
     runs-on: ubuntu-latest
