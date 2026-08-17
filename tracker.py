@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# 정품을 가리지 않도록 정제한 차단 키워드 (단품, 월, 커버, 할부 제거)
+# 정품을 가리지 않도록 정제한 공통 차단 키워드
 EXCLUDE_KEYWORDS = [
     "해외", "직구", "아랍", "병행", "중고", "리퍼", "개봉", "전시", "공기계",
     "보호필름", "스트랩", "파우치", "호환", "액세서리", "악세사리",
@@ -23,7 +23,9 @@ TARGETS = [
         "query": "갤럭시탭 S11 256GB",
         "target_price": 900000,
         "min_price": 500000,
-        "must_include": ["256GB"]
+        "must_include": ["S11"],
+        # 기본 Wi-Fi 모델만 찾기 위해 울트라, 플러스, 5G/LTE 제외
+        "must_exclude": ["울트라", "플러스", "+", "5g", "lte"]
     },
     {
         "id": "buds4_pro",
@@ -31,7 +33,8 @@ TARGETS = [
         "query": "갤럭시 버즈4 프로",
         "target_price": 280000,
         "min_price": 100000,
-        "must_include": ["버즈", "프로"]
+        "must_include": ["버즈", "프로"],
+        "must_exclude": []
     }
 ]
 
@@ -85,21 +88,27 @@ def get_danawa_lowest_price(item_config):
                 print(f"❌ 제외(최저가 미달): {title} ({price:,}원)")
                 continue
 
-            # 2. 제외 키워드 검사
+            # 2. 공통 제외 키워드 검사
             matched_exclude = [kw for kw in EXCLUDE_KEYWORDS if kw in title]
             if matched_exclude:
                 print(f"❌ 제외(키워드 '{matched_exclude[0]}'): {title}")
                 continue
 
-            # 3. 필수 키워드 검사 (공백 제거 후 비교)
             clean_title = title.lower().replace(" ", "")
+
+            # 3. 개별 상품 전용 제외 키워드 검사 (울트라, +, 5G 등)
+            matched_target_exclude = [kw for kw in item_config.get("must_exclude", []) if kw.lower() in clean_title]
+            if matched_target_exclude:
+                print(f"❌ 제외(상위/통신사모델 '{matched_target_exclude[0]}'): {title}")
+                continue
+
+            # 4. 필수 키워드 검사 (S11 등)
             missing_keywords = [kw for kw in item_config["must_include"] if kw.lower().replace(" ", "") not in clean_title]
-            
             if missing_keywords:
                 print(f"❌ 제외(필수단어 '{missing_keywords[0]}' 누락): {title}")
                 continue
 
-            # 조건을 모두 통과한 최저가 상품 찾음
+            # 모든 조건을 통과한 최저가 상품 선택
             print(f"✅ 최종 선택된 최저가: {title} ({price:,}원)")
             return {
                 "title": title,
