@@ -1,11 +1,10 @@
-name: Daily Danawa Tracker
+name: Daily Price Tracker (Danawa & Naver)
 
 on:
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
-# 저장소 쓰기 권한 명시
 permissions:
   contents: write
 
@@ -24,14 +23,20 @@ jobs:
       - name: 패키지 설치
         run: pip install requests beautifulsoup4
 
-      - name: 다나와 최저가 추적 실행
+      - name: 다나와 최저가 추적
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python tracker.py
 
+      - name: 네이버 쇼핑 최저가 추적
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python naver_tracker.py
+
       - name: 히스토리 저장
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Update Danawa price history"
-          file_pattern: "price_history.json"
+          commit_message: "Update Danawa & Naver price history"
+          file_pattern: "*.json"
