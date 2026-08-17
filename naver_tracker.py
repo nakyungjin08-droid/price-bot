@@ -37,23 +37,32 @@ def get_naver_lowest_price(item_config):
     query = item_config["query"]
     url = f"https://search.shopping.naver.com/search/all?query={requests.utils.quote(query)}"
     
-    # 봇 차단을 우회하기 위한 브라우저 헤더 설정
+    session = requests.Session()
+    
+    # 네이버 418 보안 차단을 우회하기 위한 정밀 브라우저 헤더 설정
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://m.naver.com/"
+        "Sec-Ch-Ua": '"Not-A.Brand";v="99", "Chromium";v="124", "Google Chrome";v="124"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1"
     }
 
     try:
-        res = requests.get(url, headers=headers, timeout=15)
+        res = session.get(url, headers=headers, timeout=15)
         if res.status_code != 200:
             print(f"네이버 접속 실패 (상태 코드: {res.status_code})")
             return None
 
         soup = BeautifulSoup(res.text, "html.parser")
         
-        # Next.js 데이터 태그 찾기
+        # Next.js 데이터 태그 파싱
         next_data_script = soup.find("script", id="__NEXT_DATA__")
         if not next_data_script:
             print("네이버 데이터 구조 파싱 실패")
@@ -61,7 +70,6 @@ def get_naver_lowest_price(item_config):
 
         data_json = json.loads(next_data_script.string)
         
-        # 상품 리스트 데이터 추출
         products = []
         try:
             list_items = data_json["props"]["pageProps"]["initialState"]["products"]["list"]
